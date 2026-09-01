@@ -1,0 +1,11 @@
+[Unit]
+Description=VPNGate tunnel health watchdog timer
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=120
+AccuracySec=10s
+Unit=vpngate-watchdog.service
+
+[Install]
+WantedBy=timers.target

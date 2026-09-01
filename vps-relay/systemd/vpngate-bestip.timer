@@ -1,0 +1,12 @@
+[Unit]
+Description=VPNGate best-ip auto refresh every 10 min
+
+[Timer]
+OnBootSec=120
+OnUnitActiveSec=600
+AccuracySec=15s
+Persistent=false
+Unit=vpngate-bestip.service
+
+[Install]
+WantedBy=timers.target

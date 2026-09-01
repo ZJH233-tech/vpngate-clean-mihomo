@@ -1,0 +1,4 @@
+# fwmark 策略路由经 OpenVPN tun 转发时，需要“松散”反向路径过滤，
+# 否则被 mark 的回包可能因 strict rp_filter 被丢弃。放到 /etc/sysctl.d/ 后 sysctl --system。
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.rp_filter = 2

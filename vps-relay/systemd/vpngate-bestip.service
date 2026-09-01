@@ -1,0 +1,8 @@
+[Unit]
+Description=VPNGate realtime best-ip refresh
+After=vpngate-tunnel.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vpngate/bestip_refresh.sh
+TimeoutStartSec=90

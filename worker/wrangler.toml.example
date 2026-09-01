@@ -1,0 +1,9 @@
+# 复制为 wrangler.toml 后 `wrangler deploy`
+name = "vpngate-clean-mihomo"
+main = "worker.js"
+compatibility_date = "2026-07-08"
+
+# 可选：绑定自己的自定义域名
+# [[routes]]
+# pattern = "sub.example.com"
+# custom_domain = true

@@ -1,0 +1,16 @@
+[Unit]
+Description=VPNGate OpenVPN tunnel (selective fwmark routing table 100)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vpngate
+ExecStartPre=/opt/vpngate/build_running.sh
+ExecStart=/usr/sbin/openvpn --config /opt/vpngate/running.ovpn
+Restart=always
+RestartSec=8
+LimitNPROC=64
+
+[Install]
+WantedBy=multi-user.target

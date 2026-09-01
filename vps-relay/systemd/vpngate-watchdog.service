@@ -1,0 +1,7 @@
+[Unit]
+Description=VPNGate tunnel health check and failover
+After=vpngate-tunnel.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vpngate/watchdog.sh

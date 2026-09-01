@@ -1,0 +1,15 @@
+# 运行时产物 / 私有配置，勿提交
+vps-relay/vpngate.env
+*.log
+__pycache__/
+*.pyc
+nodes/
+*.ovpn
+candidates.tsv
+current.idx
+current-best.txt
+running.ovpn
+fail.count
+.DS_Store
+node_modules/
+.wrangler/
