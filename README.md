@@ -1,5 +1,10 @@
 # VPNGate Clean Mihomo · 纯净度感知的 VPNGate 实时优选订阅
 
+<p align="center">
+  <b>简体中文</b> · <a href="README_EN.md">English</a> · <a href="README_FA.md">فارسی</a>
+</p>
+
+
 一个**单文件 Cloudflare Worker**：实时抓取 [VPN Gate](https://www.vpngate.net)（筑波大学学术实验项目）的公共 OpenVPN 节点，
 **自动检测每个出口 IP 的“纯净度 / 欺诈风险”**，在网页上浏览筛选，并直接输出一份可订阅的
 [Mihomo（Clash.Meta 内核）](https://wiki.metacubex.one/config/proxies/openvpn/) 配置——支持“只给干净住宅 IP”的纯净订阅。
@@ -9,6 +14,22 @@
 
 > 本项目衍生自 [RememberOurPromise/OpenVPNGate4Mihomo](https://github.com/RememberOurPromise/OpenVPNGate4Mihomo)（Unlicense / 公共领域），
 > 在其“浏览 + 单节点转换”的基础上新增了 **IP 风险画像、纯净订阅、整份可订阅配置、VPS 自动优选出口** 等能力，详见 [致谢](#-致谢)。
+
+---
+
+## 🖼️ 效果演示
+
+**① 节点浏览器：按“纯净度”排序，干净的住宅 / 运营商 IP（绿色 100）排在最前，已知代理 / 机房标红：**
+
+![节点浏览器：按纯净度排序](assets/01-clean-dashboard.png)
+
+**② 一键把任意节点转换为 Mihomo（Clash.Meta）配置段，可复制或下载：**
+
+![OpenVPN 一键转 Mihomo 配置段](assets/02-mihomo-convert.png)
+
+**③ `/sub?clean=1` 直接输出完整可订阅配置——每个节点标注纯净度，内置 url-test 自动测速组（下图证书块已折叠）：**
+
+![纯净订阅输出的完整 Mihomo 配置](assets/03-clean-subscription.png)
 
 ---
 
