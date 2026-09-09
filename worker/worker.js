@@ -21,17 +21,18 @@ const UPSTREAM_TTL = 120; // 上游列表边缘缓存 2 分钟，兼顾实时性
 // ============================================================
 // 合并订阅(?mode=merged)专用：自建「日本承载IP落地」VLESS-Reality 节点
 //   该节点落在 VPS 本机出口 IP(承载IP)，不经过 VPNGate tun0 住宅落地
+// ⚠️ 私有参数请自行填写后再部署,切勿把真实 IP/UUID/密钥提交到公开仓库
 // ============================================================
 const SELF_JP_NODE = {
   name: '日本-自建承载落地',
-  server: 'REDACTED-IP',
-  port: 2053,
-  uuid: 'REDACTED-UUID',
+  server: 'YOUR_SERVER_IP',
+  port: 443,
+  uuid: 'YOUR_UUID',
   network: 'tcp',
   flow: 'xtls-rprx-vision',
   sni: 'www.ibm.com',
-  pbk: 'REDACTED-PBK',
-  sid: 'REDACTED-SID',
+  pbk: 'YOUR_REALITY_PUBLIC_KEY',
+  sid: 'YOUR_REALITY_SHORT_ID',
   fp: 'chrome',
 };
 const PER_COUNTRY_MAX = 20;   // 非日本国家最多各取 1 个的国家数上限
