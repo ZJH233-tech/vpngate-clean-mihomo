@@ -1,0 +1,11 @@
+[Unit]
+Description=VPNGate multi-exit purity watchdog timer
+
+[Timer]
+OnBootSec=150
+OnUnitActiveSec=120
+AccuracySec=15s
+Unit=vpngate-multi-watchdog.service
+
+[Install]
+WantedBy=timers.target
