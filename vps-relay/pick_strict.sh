@@ -5,7 +5,7 @@ DIR="${VPNGATE_DIR:-/opt/vpngate}"
 cd "$DIR" || exit 1
 [ -f "$DIR/vpngate.env" ] && . "$DIR/vpngate.env"
 SCAM_MAX="${VPNGATE_SCAM_MAX:-25}"
-SCAM_API="${VPNGATE_SCAM_API:-https://scamtest.REDACTED-USER.workers.dev/?ip=}"
+SCAM_API="${VPNGATE_SCAM_API:-}"   # 留空则只验隧道+出口国,跳过欺诈分
 TOTAL=$(wc -l < candidates.tsv)
 BEST=""
 for ((i=0; i<TOTAL; i++)); do
@@ -25,6 +25,11 @@ for ((i=0; i<TOTAL; i++)); do
   CC=$(curl -s -m 8 "http://ip-api.com/line/$E?fields=countryCode")
   SC=$(curl -s -m 20 "${SCAM_API}${E}" | grep -oE 'score=[0-9]+' | cut -d= -f2)
   echo "idx=$i entry=$(grep '^remote ' running.ovpn | awk '{print $2}') egress=$E cc=$CC scam=$SC"
+  # 未配置欺诈分接口时:只要出口国正确即接受(降级模式)
+  if [ -z "$SCAM_API" ] && [ "$CC" = "JP" ]; then
+    echo "ACCEPTED(no-scam-api) idx=$i egress=$E"
+    exit 0
+  fi
   if [ "$CC" = "JP" ] && [ -n "$SC" ] && [ "$SC" -lt "$SCAM_MAX" ] 2>/dev/null; then
     echo "ACCEPTED idx=$i egress=$E scam=$SC"
     exit 0
