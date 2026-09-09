@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
-# Authors: @ZJH233-tech & Doubao AI（配套 vpngate-clean-mihomo Worker）
-# VPNGate 实时优选器（VPS 转换层 / 可独立运行）
-# 1) 数据源：优先自建 Cloudflare Worker /api/servers（已解析、带缓存、带 IP 纯净度画像），
+# Authors: @ZJH233-tech & Doubao AI(配套 vpngate-clean-mihomo Worker)
+# VPNGate 实时优选器(VPS 转换层 / 可独立运行)
+# 1) 数据源:优先自建 Cloudflare Worker /api/servers(已解析、带缓存、带 IP 纯净度画像),
 #    未配置 Worker 或其不可用时回源 VPNGate 官方 CSV。
-# 2) 默认“纯净优先”：非代理/非机房/clean>=50 的干净住宅/ISP 节点排最前，
-#    官方公共集群(已知公共代理,风险较高)排候选池后部兜底；组内按 score->ping->speed。
+# 2) 默认"纯净优先":非代理/非机房/clean>=50 的干净住宅/ISP 节点排最前,
+#    官方公共集群(已知公共代理,风险较高)排候选池后部兜底;组内按 score->ping->speed。
 #    设环境变量 VPNGATE_CLEAN=0 可回到速度优先。
-# 3) 重写候选池 nodes/*.ovpn + candidates.tsv（供 watchdog / build_running 使用）。
-# 4) 稳定性优先：定时刷新只更新候选池，绝不主动重连；仅当 watchdog 判定不健康并显式
-#    --switch-top 时，才平滑切到实时榜首。
+# 3) 重写候选池 nodes/*.ovpn + candidates.tsv(供 watchdog / build_running 使用)。
+# 4) 稳定性优先:定时刷新只更新候选池,绝不主动重连;仅当 watchdog 判定不健康并显式
+#    --switch-top 时,才平滑切到实时榜首。
 #
-# 配置（环境变量，或写进 $VPNGATE_DIR/vpngate.env，每行 KEY=VALUE）：
-#   VPNGATE_DIR    工作目录，默认 /opt/vpngate
-#   VPNGATE_WORKER 自建 Worker 的 /api/servers 地址；留空则只用官方 CSV
-#   VPNGATE_CC     限定国家(两位代码)，默认 JP；置空表示全球
-#   VPNGATE_CLEAN  1=纯净优先(默认)，0=速度优先
-#   POOL           候选池大小，默认 12
+# 重构修改(相对仓库初版):
+#   - current.idx / candidates.tsv 首列改为十进制无前导零,
+#     修复 watchdog "$((IDX+1))" 在 08/09 时被 bash 当作非法八进制的 bug。
+#
+# 配置(环境变量,或写进 $VPNGATE_DIR/vpngate.env,每行 KEY=VALUE):
+#   VPNGATE_DIR    工作目录,默认 /opt/vpngate
+#   VPNGATE_WORKER 自建 Worker 的 /api/servers 地址;留空则只用官方 CSV
+#   VPNGATE_CC     限定国家(两位代码),默认 JP;置空表示全球
+#   VPNGATE_CLEAN  1=纯净优先(默认),0=速度优先
+#   POOL           候选池大小,默认 12
 import sys, os, csv, json, base64, subprocess, urllib.request, io, time
 
 WORKDIR = os.environ.get('VPNGATE_DIR', '/opt/vpngate')
 
 
 def _load_env(path):
-    """从 KEY=VALUE 文件加载配置（不覆盖已存在的环境变量），文件缺失则忽略。"""
+    """从 KEY=VALUE 文件加载配置(不覆盖已存在的环境变量),文件缺失则忽略。"""
     try:
         with open(path) as ef:
             for ln in ef:
@@ -72,7 +76,7 @@ def num(x):
 
 def load_rows():
     """返回统一结构 [{ip,cc,score,ping,speed,b64,src,risk,clean,proxy,hosting,grade,isp}]。"""
-    # 1) 自建 Worker（带纯净度画像）
+    # 1) 自建 Worker(带纯净度画像)
     if WORKER:
         try:
             d = json.loads(http_get(WORKER))
@@ -188,7 +192,7 @@ def write_pool(top):
             fn = 'nodes/%02d_%s.ovpn' % (i, r['ip'])
             with open(fn, 'w') as cf:
                 cf.write(r['cfg'])
-            out.write('%02d\t%s\t%s\t%s\t%s\t%s/%s\n'
+            out.write('%d\t%s\t%s\t%s\t%s\t%s/%s\n'
                       % (i, r['ip'], r['cc'], int(r['score']), int(r['speed']), WORKDIR, fn))
 
 
@@ -203,12 +207,12 @@ def current_remote():
 
 
 def apply_top(top, force_switch=False):
-    # 定时刷新只维护候选池与 idx，绝不主动重连；仅 --switch-top 时切到实时榜首
+    # 定时刷新只维护候选池与 idx,绝不主动重连;仅 --switch-top 时切到实时榜首
     cur = current_remote()
     top_ips = [r['ip'] for r in top]
     new_idx = top_ips.index(cur) if cur in top_ips else 0
     with open('current.idx', 'w') as f:
-        f.write('%02d' % new_idx)
+        f.write('%d' % new_idx)
     best = top[0]
     qtag = ('clean=%s/risk=%s' % (best.get('clean'), best.get('risk'))) if best.get('risk') is not None else 'quality=n/a'
     with open('current-best.txt', 'w') as f:
