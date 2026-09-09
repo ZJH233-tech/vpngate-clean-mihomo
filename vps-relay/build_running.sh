@@ -1,5 +1,6 @@
 #!/bin/bash
-# 依据 current.idx 从候选池拼出 running.ovpn；候选池缺失/为空时先自举生成，保证开机可起
+# 依据 current.idx 从候选池拼出 running.ovpn;候选池缺失/为空时先自举生成,保证开机可起
+# 重构修改:候选配置已含 auth-user-pass 时不再重复追加(重复指令会导致凭据解析混乱)
 set -u
 DIR="${VPNGATE_DIR:-/opt/vpngate}"
 cd "$DIR" || exit 1
@@ -20,11 +21,12 @@ if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
 fi
 {
   cat "$SRC"
+  if ! grep -qiE '^[[:space:]]*auth-user-pass' "$SRC"; then
+    printf 'auth-user-pass %s\nauth-nocache\n' "$DIR/auth.txt"
+  fi
   cat <<TAIL
 route-nopull
 route-noexec
-auth-user-pass $DIR/auth.txt
-auth-nocache
 script-security 2
 route-up $DIR/ovpn-up.sh
 down $DIR/ovpn-down.sh
