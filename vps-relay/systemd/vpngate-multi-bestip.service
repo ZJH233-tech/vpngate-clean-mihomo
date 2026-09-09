@@ -1,0 +1,8 @@
+[Unit]
+Description=VPNGate multi-exit candidate refresh
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/vpngate/multi_refresh.py
+TimeoutStartSec=120
