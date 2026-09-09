@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """生成 sb-exit.json:1个日本入站(8444) + 10个多地区入站(8445-8454)。
-每入站独立直连出站(routing_mark 354+slot),IPv6 一律黑洞。"""
-import json
+每入站独立直连出站(routing_mark 354+slot),IPv6 一律黑洞。
+真实 UUID 从环境变量 VPNGATE_MULTI_UUID 读取(vpngate.env),不要写死在代码里。"""
+import json, os
 
+_uuid = os.environ.get('VPNGATE_MULTI_UUID', '00000000-0000-0000-0000-000000000000')
 kv = {}
 for line in open('/root/kp-8444.txt'):
     if '=' in line:
         k, v = line.strip().split('=', 1)
         kv[k] = v
-UUID = 'REDACTED-UUID'
+UUID = _uuid
 TLS = {
     'enabled': True,
     'server_name': 'www.ibm.com',
