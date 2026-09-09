@@ -5,7 +5,7 @@ DIR="/opt/vpngate"
 cd "$DIR" || exit 0
 [ -f "$DIR/vpngate.env" ] && . "$DIR/vpngate.env"
 SCAM_MAX="${VPNGATE_SCAM_MAX:-25}"
-SCAM_API="${VPNGATE_SCAM_API:-https://scamtest.REDACTED-USER.workers.dev/?ip=}"
+SCAM_API="${VPNGATE_SCAM_API:-}"   # 留空则只验隧道存活与出口国,跳过欺诈分
 COOLDOWN="${VPNGATE_SWITCH_COOLDOWN:-600}"
 SLOTS="${VPNGATE_MULTI_SLOTS:-10}"
 MAINIP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1);exit}}')
@@ -41,6 +41,7 @@ for SLOT in $(seq 1 "$SLOTS"); do
     continue
   fi
   echo 0 > fail.count
+  if [ -z "$SCAM_API" ]; then continue; fi   # 未配置欺诈分接口,跳过纯净度检查
   # 出口国 + 欺诈分(每槽缓存1小时)
   read -r LIP LSC LTS LCC <<< "$(cat exit-scam.txt 2>/dev/null)"
   if [ "$E" != "$LIP" ] || [ -z "$LSC" ] || [ $((now - LTS)) -gt 3600 ]; then
