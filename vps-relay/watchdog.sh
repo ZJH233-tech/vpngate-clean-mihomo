@@ -11,7 +11,7 @@ DIR="${VPNGATE_DIR:-/opt/vpngate}"
 cd "$DIR" || exit 0
 [ -f "$DIR/vpngate.env" ] && . "$DIR/vpngate.env"
 SCAM_MAX="${VPNGATE_SCAM_MAX:-25}"                       # 出口欺诈分阈值
-SCAM_API="${VPNGATE_SCAM_API:-https://scamtest.REDACTED-USER.workers.dev/?ip=}"
+SCAM_API="${VPNGATE_SCAM_API:-}"                         # 欺诈分查询接口(含 ?ip=),留空则跳过纯净度检查
 COOLDOWN="${VPNGATE_SWITCH_COOLDOWN:-600}"               # 自动切换冷却(秒)
 
 rot() {
@@ -59,6 +59,10 @@ fi
 echo 0 > fail.count
 
 # ---------- 2) 出口纯净度 ----------
+if [ -z "$SCAM_API" ]; then
+  echo "$(date '+%F %T') VPNGATE_SCAM_API not set, skip purity check" >> health.log
+  exit 0
+fi
 E=$(curl -4 -s --max-time 10 --interface "$DEV" https://api.ipify.org 2>/dev/null)
 [ -z "$E" ] && exit 0
 read -r LIP LSC LTS <<< "$(cat exit-scam.txt 2>/dev/null)"
