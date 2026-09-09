@@ -1,0 +1,16 @@
+[Unit]
+Description=VPNGate multi-exit tunnel slot %i (independent fwmark table)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vpngate/multi/%i
+ExecStartPre=/opt/vpngate/multi_build.sh %i
+ExecStart=/usr/sbin/openvpn --config /opt/vpngate/multi/%i/running.ovpn
+Restart=always
+RestartSec=8
+LimitNPROC=64
+
+[Install]
+WantedBy=multi-user.target
