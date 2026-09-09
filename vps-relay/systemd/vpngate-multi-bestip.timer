@@ -1,0 +1,12 @@
+[Unit]
+Description=VPNGate multi-exit candidate refresh every 15 min
+
+[Timer]
+OnBootSec=180
+OnUnitActiveSec=900
+AccuracySec=30s
+Persistent=false
+Unit=vpngate-multi-bestip.service
+
+[Install]
+WantedBy=timers.target
