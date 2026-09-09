@@ -10,7 +10,24 @@ PER_COUNTRY = 5
 EXCLUDE_CC = {'JP'}
 OFFICIAL_PREFIX = '219.100.37.'
 MIN_SPEED = 3_000_000
-WORKER = 'https://vpngate-sub.REDACTED.DOMAIN/api/servers'
+
+def _load_env(path):
+    try:
+        with open(path) as ef:
+            for ln in ef:
+                ln = ln.strip()
+                if not ln or ln.startswith('#') or '=' not in ln:
+                    continue
+                k, v = ln.split('=', 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    except OSError:
+        pass
+
+_load_env(os.path.join(WORKDIR, 'vpngate.env'))
+WORKER = os.environ.get('VPNGATE_WORKER', '').strip().rstrip('/')
+if not WORKER.startswith('http'):
+    print('VPNGATE_WORKER not configured, skip')
+    sys.exit(0)
 UA = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'}
 
 def log(msg):
