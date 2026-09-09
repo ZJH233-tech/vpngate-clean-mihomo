@@ -1,0 +1,8 @@
+[Unit]
+Description=VPNGate multi-exit purity watchdog
+After=vpngate-tunnel@1.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vpngate/multi_watchdog.sh
+TimeoutStartSec=600
