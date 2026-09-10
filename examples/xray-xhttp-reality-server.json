@@ -1,0 +1,36 @@
+{
+  "//": "VLESS-XHTTP-Reality 服务端模板(Xray-core)。填入 YOUR_* 后部署;vision 流控不可与 XHTTP 同用",
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 8388,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{ "id": "YOUR_UUID", "level": 0 }],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.ibm.com:443",
+          "serverNames": ["www.ibm.com"],
+          "privateKey": "YOUR_REALITY_PRIVATE_KEY",
+          "shortIds": ["YOUR_SHORT_ID"],
+          "maxTimeDifference": "1m"
+        },
+        "xhttpSettings": { "path": "/grpcreal" }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    }
+  ],
+  "outbounds": [
+    { "protocol": "freedom", "tag": "direct" },
+    { "protocol": "blackhole", "tag": "block" }
+  ]
+}

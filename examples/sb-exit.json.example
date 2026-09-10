@@ -1,0 +1,44 @@
+{
+  "//": "VPNGate 出口节点模板(sing-box)。推荐用 gen_sbexit.py 自动生成(读环境变量),本文件为手工参考",
+  "log": {
+    "level": "warn",
+    "output": "/opt/vpngate/sbexit.log",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "exit-in",
+      "listen": "::",
+      "listen_port": 8444,
+      "users": [
+        {
+          "name": "u1",
+          "uuid": "YOUR_UUID",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.ibm.com",
+        "reality": {
+          "enabled": true,
+          "handshake": { "server": "www.ibm.com", "server_port": 443 },
+          "private_key": "YOUR_REALITY_PRIVATE_KEY",
+          "short_id": ["YOUR_SHORT_ID"],
+          "max_time_difference": "1m"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "via-tun", "routing_mark": 354 },
+    { "type": "block", "tag": "block6" }
+  ],
+  "route": {
+    "rules": [
+      { "inbound": ["exit-in"], "ip_cidr": ["::/0"], "outbound": "block6" },
+      { "inbound": ["exit-in"], "outbound": "via-tun" }
+    ]
+  }
+}

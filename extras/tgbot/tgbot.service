@@ -1,0 +1,16 @@
+[Unit]
+Description=TG butler bot (VPS remote management)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 可选: 在 /opt/tgbot/bot.env 里写 VPS_IP=... 与 VPNGATE_SUB_BASE=https://...
+EnvironmentFile=-/opt/tgbot/bot.env
+ExecStart=/usr/bin/python3 /opt/tgbot/bot.py
+WorkingDirectory=/opt/tgbot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
