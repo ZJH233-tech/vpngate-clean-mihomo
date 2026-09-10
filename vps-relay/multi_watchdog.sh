@@ -57,6 +57,8 @@ for SLOT in $(seq 1 "$SLOTS"); do
   PIN=$(cat cc 2>/dev/null | tr -d '*')
   LT=$(cat last-switch.ts 2>/dev/null || echo 0)
   [ $((now - LT)) -lt "$COOLDOWN" ] && continue
+  # 已判定整池不合格、等下次 multi_refresh 换国的槽, 期间不再重复探测/刷日志
+  [ -f release ] && continue
 
   DEVIP=$(ip -o -4 addr show dev "$DEV" 2>/dev/null | grep -oE 'inet [0-9.]+' | head -1)
   E=""

@@ -24,7 +24,10 @@ OFFICIAL_PREFIX = '219.100.37.'
 MIN_SPEED = 3_000_000
 SLOTMAP = os.path.join(WORKDIR, 'multi', 'slot-map.json')
 SKIPFILE = os.path.join(WORKDIR, 'multi', 'skip-until.json')
+MISSFILE = os.path.join(WORKDIR, 'multi', 'missing-grace.json')
 SKIP_TTL = 1800          # 被看门狗释放的国家 30 分钟内不再分配
+MISS_GRACE = 2           # 国家连续 N 轮(15min/轮)从公网列表消失才真正换国;
+#                        # VPNGate 下榜≠中继停摆(已下发的 ovpn 常仍能连), 滞后可显著减少换旗
 
 
 def _load_env(path):
@@ -147,6 +150,11 @@ def main():
         skip_until = {k: int(v) for k, v in json.load(open(SKIPFILE)).items()}
     except (OSError, ValueError):
         pass
+    missing = {}
+    try:
+        missing = {k: int(v) for k, v in json.load(open(MISSFILE)).items()}
+    except (OSError, ValueError):
+        pass
 
     def skipped(cc):
         return skip_until.get(cc, 0) > now
@@ -154,19 +162,39 @@ def main():
     assignment = {}            # slot -> 基础国家码(不带 *)
     is_dup = set()             # 哪些槽是"同国异 IP 补槽"(落盘时 cc 带 *)
     reserved = set()           # 已被"主绑定"(非补槽)持有的国家
+    held = {}                  # slot -> 标签: 国家暂下榜但在宽限期, 保留现隧道不动
+    released_slots = set()
 
-    # 第零遍: 先消费所有槽的 release 标记(看门狗判定整池不合格 -> 该国冷却)
+    # 第零遍: 先消费所有槽的 release 标记(看门狗实测整池不合格 -> 该国冷却, 不宽限)
     for slot in range(1, SLOTS + 1):
         base = prev.get(slot, '').rstrip('*')
         relf = os.path.join(WORKDIR, 'multi', str(slot), 'release')
         if os.path.exists(relf) and base:
             skip_until[base] = now + SKIP_TTL
+            released_slots.add(slot)
+            missing.pop(base, None)
             log('slot=%d release pin %s (watchdog rejected whole pool), skip %ds'
                 % (slot, base, SKIP_TTL))
             try:
                 os.remove(relf)
             except OSError:
                 pass
+
+    def hold_or_drop(slot, base):
+        """国家本轮从公网列表消失: 宽限 MISS_GRACE 轮内保留现隧道(下榜≠停摆)。"""
+        if slot in released_slots or skipped(base):
+            return False
+        n = missing.get(base, 0)
+        if n < MISS_GRACE:
+            missing[base] = n + 1
+            held[slot] = base + ('*' if prev.get(slot, '').endswith('*') else '')
+            assignment[slot] = base
+            reserved.add(base)
+            log('slot=%d hold %s (off-list round %d/%d, keep current tunnel)'
+                % (slot, base, n + 1, MISS_GRACE))
+            return True
+        missing.pop(base, None)
+        return False
 
     # 第一遍(A): 优先保留"主绑定"(旧值不带 *)粘性, 它们对国家有优先占用权
     for slot in range(1, SLOTS + 1):
@@ -176,6 +204,9 @@ def main():
         if p in pools and p not in reserved and not skipped(p):
             assignment[slot] = p
             reserved.add(p)
+            missing[p] = 0
+        elif p and p not in pools:
+            hold_or_drop(slot, p)
 
     # 第一遍(B): 再保留"补槽"(旧值带 *); 同国可多槽共存, 因此不占用 reserved
     for slot in range(1, SLOTS + 1):
@@ -186,6 +217,10 @@ def main():
         if base in pools and not skipped(base):
             assignment[slot] = base
             is_dup.add(slot)
+            missing[base] = 0
+        elif base not in pools:
+            if hold_or_drop(slot, base):
+                is_dup.add(slot)
 
     # 第二遍: 空槽补"尚未被主绑定占用/未跳过"的最优独立国家
     free = [s for s in range(1, SLOTS + 1) if s not in assignment]
@@ -223,6 +258,8 @@ def main():
     slot_plan = {}
     members = {}
     for slot, base in assignment.items():
+        if slot in held:          # 宽限持有的槽没有新候选池, 不重建
+            continue
         members.setdefault(base, []).append(slot)
     for base, slots in members.items():
         pool = pools[base]
@@ -260,10 +297,14 @@ def main():
              (' CHANGED from %s' % old_cc) if old_cc != cc.upper() else ''))
 
     final_map = {s: slot_plan[s][0] for s in sorted(slot_plan)}
+    final_map.update({s: held[s] for s in sorted(held)})   # 宽限槽保留原标签
+    final_map = {s: final_map[s] for s in sorted(final_map)}
 
     json.dump(final_map, open(SLOTMAP, 'w'), ensure_ascii=False, indent=2, sort_keys=True)
     json.dump({k: v for k, v in skip_until.items() if v > now},
               open(SKIPFILE, 'w'), ensure_ascii=False, indent=2, sort_keys=True)
+    json.dump({k: v for k, v in missing.items() if 0 < v <= MISS_GRACE},
+              open(MISSFILE, 'w'), ensure_ascii=False, indent=2, sort_keys=True)
     if changed_slots:
         log('country changes this round: %s' % changed_slots)
     log('multi refresh done, pinned=%d/%d' % (len(final_map), SLOTS))

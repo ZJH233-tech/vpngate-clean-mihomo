@@ -19,6 +19,7 @@ exit-scam.txt
 release
 slot-map.json
 skip-until.json
+missing-grace.json
 .DS_Store
 node_modules/
 .wrangler/
