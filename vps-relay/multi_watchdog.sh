@@ -4,7 +4,9 @@
 #   - 欺诈分缓存 1 小时/槽; 实测出口国每轮实时查询
 #   - v2: 实测国必须等于槽位绑定国(multi/<slot>/cc), 链式转发导致声明国≠出口国时
 #         自动换候选; 一轮候选全部试过仍不符则"接受现状"(由 sync 按实测国命名),
-#         等下次 multi_refresh 更新候选池后再试, 避免死循环
+#         写 release 让下次 multi_refresh 换国, 避免死循环;
+#         全部候选隧道都打不通(unhealthy)时同样写 release(v2.1 修复: 旧逻辑此路径
+#         只轮换不释放, 单候选死国家会永久空转)
 #   - 每轮结束调用 sync_subscriptions.py, 让订阅名字始终跟随真实出口
 DIR="/opt/vpngate"
 cd "$DIR" || exit 0
@@ -16,11 +18,24 @@ SLOTS="${VPNGATE_MULTI_SLOTS:-10}"
 MAINIP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1);exit}}')
 now=$(date +%s)
 
+bump_tried() {  # 候选池刷新则计数清零, 否则+1; 输出当前已尝试数
+  local SLOT=$1
+  local SD="$DIR/multi/$SLOT"
+  cd "$SD" || { echo 0; return; }
+  local MT PMT T
+  MT=$(stat -c %Y candidates.tsv 2>/dev/null || echo 0)
+  PMT=$(cat cand.mtime 2>/dev/null || echo 0)
+  if [ "$MT" != "$PMT" ]; then echo "$MT" > cand.mtime; echo 0 > tried.count; fi
+  T=$(( $(cat tried.count 2>/dev/null || echo 0) + 1 ))
+  echo "$T" > tried.count
+  echo "$T"
+}
+
 rotate_slot() {  # $1=slot  轮换到下一候选并重建重启
   local SLOT=$1
   local SD="$DIR/multi/$SLOT"
   cd "$SD" || return
-  local TOTAL IDX
+  local TOTAL IDX TRIED
   TOTAL=$(wc -l < candidates.tsv 2>/dev/null || echo 0)
   IDX=$(cat current.idx 2>/dev/null || echo 0)
   if [ "$TOTAL" -gt 1 ]; then
@@ -29,13 +44,7 @@ rotate_slot() {  # $1=slot  轮换到下一候选并重建重启
   fi
   bash "$DIR/multi_build.sh" "$SLOT" >/dev/null
   systemctl restart "vpngate-tunnel@$SLOT"
-  # 耗尽保护: 记录自候选池更新以来已轮换次数
-  local MT TRIED
-  MT=$(stat -c %Y candidates.tsv 2>/dev/null || echo 0)
-  local PMT=$(cat cand.mtime 2>/dev/null || echo 0)
-  if [ "$MT" != "$PMT" ]; then echo "$MT" > cand.mtime; echo 0 > tried.count; fi
-  TRIED=$(( $(cat tried.count 2>/dev/null || echo 0) + 1 ))
-  echo "$TRIED" > tried.count
+  TRIED=$(bump_tried "$SLOT")
   echo "$(date '+%F %T') slot=$SLOT rotate -> idx=$IDX tried=$TRIED/$TOTAL" >> "$DIR/multi.log"
 }
 
@@ -61,8 +70,20 @@ for SLOT in $(seq 1 "$SLOTS"); do
     echo "$(date '+%F %T') slot=$SLOT unhealthy #$N" >> "$DIR/multi.log"
     if [ "$N" -ge 2 ]; then
       echo 0 > fail.count
-      echo "$now" > last-switch.ts
-      rotate_slot "$SLOT"
+      TOTAL=$(wc -l < candidates.tsv 2>/dev/null || echo 0)
+      # 候选池若已全部试过仍不通, 直接释放绑定(避免单候选死隧道无限空转)
+      MT=$(stat -c %Y candidates.tsv 2>/dev/null || echo 0)
+      PMT=$(cat cand.mtime 2>/dev/null || echo 0)
+      [ "$MT" != "$PMT" ] && { echo "$MT" > cand.mtime; echo 0 > tried.count; }
+      CUR=$(cat tried.count 2>/dev/null || echo 0)
+      if [ "$TOTAL" -ge 1 ] && [ $((CUR + 1)) -ge "$TOTAL" ]; then
+        echo $((CUR + 1)) > tried.count
+        echo "$now all-candidates-unhealthy" > release
+        echo "$(date '+%F %T') slot=$SLOT accept dead pool, RELEASE pin=$PIN (all $TOTAL candidates unhealthy)" >> "$DIR/multi.log"
+      else
+        echo "$now" > last-switch.ts
+        rotate_slot "$SLOT"
+      fi
     fi
     continue
   fi
@@ -96,12 +117,13 @@ for SLOT in $(seq 1 "$SLOTS"); do
     continue
   fi
 
-  # cc-mismatch 耗尽保护: 候选池轮了一遍仍不符 -> 本轮接受现状(订阅按实测国显示)
+  # 候选池轮了一遍仍不合格 -> 接受现状继续跑(订阅按实测国显示),
+  # 同时写 release 标志, 让下次 multi_refresh 释放该槽绑定、另换国家(30min 内不再选它)
   TOTAL=$(wc -l < candidates.tsv 2>/dev/null || echo 0)
   TRIED=$(cat tried.count 2>/dev/null || echo 0)
-  if [[ "$REASON" == *cc-mismatch* ]] && [ "$TRIED" -ge "$TOTAL" ] && [ "$TOTAL" -ge 1 ] \
-     && [[ "$REASON" != *scam* ]] && [[ "$REASON" != *JP* ]]; then
-    echo "$(date '+%F %T') slot=$SLOT accept egress=$E cc=$CC (pool exhausted, pin=$PIN)" >> "$DIR/multi.log"
+  if [ "$TRIED" -ge "$TOTAL" ] && [ "$TOTAL" -ge 1 ]; then
+    echo "$now $REASON" > release
+    echo "$(date '+%F %T') slot=$SLOT accept egress=$E cc=$CC, RELEASE pin=$PIN ($REASON, pool exhausted)" >> "$DIR/multi.log"
     rm -f dirty.count
     continue
   fi
