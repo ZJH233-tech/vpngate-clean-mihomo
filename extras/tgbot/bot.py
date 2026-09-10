@@ -171,6 +171,37 @@ def slot_cc(s):
     except Exception:
         return '?'
 
+def confirm_exit(st, tag, ip, cc, now, pend_ttl=300):
+    """出口变更双确认去抖。同一新出口需连续两轮巡检(约40s)一致才确认,
+    消除"换出去又换回/探测瞬时抖动"造成的误报。
+    状态键: last_<tag>=已确认IP, lastc_<tag>=已确认实测国,
+            pend_<tag>/pendc_<tag>/pendt_<tag>=待确认候选。
+    返回 (event, old_cc, new_cc); event: 'country'=换国 / 'ip'=同国换IP / None=无变更。"""
+    if not ip:
+        return None, '', ''
+    bk, ck = 'last_' + tag, 'lastc_' + tag
+    pk, pck, ptk = 'pend_' + tag, 'pendc_' + tag, 'pendt_' + tag
+    base = st.get(bk)
+    if base is None:                       # 首次只建基线, 不报警
+        st[bk], st[ck] = ip, cc or ''
+        return None, '', cc or ''
+    if ip == base:                        # 出口未变, 清掉待确认
+        for k in (pk, pck, ptk):
+            st.pop(k, None)
+        return None, st.get(ck, ''), cc or ''
+    if st.get(pk) == ip and (now - int(st.get(ptk, 0))) <= pend_ttl:
+        old_cc = st.get(ck, '')           # 连续第二轮一致 -> 确认
+        st[bk] = ip
+        if cc:
+            st[ck] = cc
+        for k in (pk, pck, ptk):
+            st.pop(k, None)
+        if cc and old_cc and cc != old_cc:
+            return 'country', old_cc, cc
+        return 'ip', old_cc, cc or old_cc
+    st[pk], st[pck], st[ptk] = ip, cc or '', now   # 新候选, 下轮确认
+    return None, st.get(ck, ''), cc or ''
+
 def main_ip():
     out = sh("ip -4 route get 1.1.1.1 2>/dev/null | grep -oE 'src [0-9.]+' | cut -d' ' -f2", 10).stdout.strip()
     return out or os.environ.get('VPS_IP', '')  # 兜底: systemd EnvironmentFile 里导出 VPS_IP
@@ -413,21 +444,25 @@ def sample_alerts():
             notify('💥 %s 自动重启 %d 次(当前: %s)' % (svc, int(n) - int(old), svc_active(svc)), important=True)
         if n.isdigit():
             st[key] = n
-    e, sc, _ = read_exit(VG + '/exit-scam.txt')
-    if e and e != st.get('last_jp_exit'):
-        notify('🌏 日本住宅出口已切换: %s (欺诈分 %s)' % (e, sc), important=False)
-        st['last_jp_exit'] = e
+    # 出口变更: 双确认去抖 + 只在"实测国家变化(换国)"时推送;
+    # 同一国家内换 IP(候选轮换)只更新基线、不打扰(置顶面板仍实时可见)
+    e, sc, ecc = read_exit(VG + '/exit-scam.txt')
+    jev, jo, jn = confirm_exit(st, 'jp_exit', e, ecc, now)
+    if jev == 'country':
+        notify('🌏 日本住宅出口换国: %s→%s · %s (欺诈分 %s)' % (jo, jn, e, sc), important=False)
     changes = []
+    silent_ip = 0
     for s in range(1, 11):
-        me, msc, _ = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
-        key = 'last_m%d' % s
-        if me and me != st.get(key):
-            if st.get(key) is not None:
-                changes.append('槽%d(%s) → %s (欺诈分 %s)' % (s, slot_cc(s), me, msc))
-            st[key] = me
+        me, msc, mcc = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
+        ev, old_c, new_c = confirm_exit(st, 'm%d' % s, me, mcc, now)
+        if ev == 'country':
+            changes.append('槽%d %s→%s · %s (欺诈分 %s)' % (s, old_c, new_c, me, msc))
+        elif ev == 'ip':
+            silent_ip += 1
     if changes and now - st.get('multi_last', 0) >= 600:
-        notify('🌏 多地区出口变更:\n' + '\n'.join(changes), important=False)
+        notify('🌏 多地区出口"换国":\n' + '\n'.join(changes), important=False)
         st['multi_last'] = now
+    st['multi_silent_ip'] = silent_ip
     lt = time.localtime()
     today = time.strftime('%F')
     if st.get('daily', True) and lt.tm_hour == 9 and st.get('last_daily') != today and lt.tm_min < 2:
@@ -439,13 +474,15 @@ def sample_alerts():
 def alert_loop():
     time.sleep(8)
     st = load_state()
-    e, _, _ = read_exit(VG + '/exit-scam.txt')
+    e, _, ecc = read_exit(VG + '/exit-scam.txt')
     if e:
         st['last_jp_exit'] = e
+        st['lastc_jp_exit'] = ecc
     for s in range(1, 11):
-        me, _, _ = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
+        me, _, mcc = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
         if me:
             st['last_m%d' % s] = me
+            st['lastc_m%d' % s] = mcc
     for svc in SVC_CORE:
         n = sh('systemctl show -p NRestarts --value %s' % svc, 10).stdout.strip()
         if n.isdigit():
@@ -557,9 +594,10 @@ def slots_menu():
     rows = []
     for s in range(1, 11):
         cc = slot_cc(s)
-        me, msc, _ = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
+        me, msc, mcc = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
+        label = cc if (not mcc or mcc == cc) else '%s/%s' % (cc, mcc)
         act = '🟢' if svc_active('vpngate-tunnel@%d' % s) else '🔴'
-        rows.append([('槽%d %s %s %s' % (s, cc, act, me or '无出口'), 'noop'), ('🔄', 'q:rot:%d' % s)])
+        rows.append([('槽%d %s %s %s' % (s, label, act, me or '无出口'), 'noop'), ('🔄', 'q:rot:%d' % s)])
     rows.append([('⬅️ 返回', 'node')])
     return ikb(rows)
 
@@ -643,8 +681,10 @@ def node_status():
     e, sc, _ = read_exit(VG + '/exit-scam.txt')
     lines.append('🇯🇵 日本: %s (欺诈分 %s)' % (e or '无', sc))
     for s in range(1, 11):
-        me, msc, _ = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
-        lines.append('🌐 槽%-2d %s: %s (欺诈分 %s)' % (s, slot_cc(s), me or '无', msc))
+        me, msc, mcc = read_exit('%s/multi/%s/exit-scam.txt' % (VG, s))
+        pin = slot_cc(s)
+        where = pin if (not mcc or mcc == pin) else '%s→实测%s' % (pin, mcc)
+        lines.append('🌐 槽%-2d %s: %s (欺诈分 %s)' % (s, where, me or '无', msc))
     return '\n'.join(lines)
 
 # ---------------- 菜单 ----------------
