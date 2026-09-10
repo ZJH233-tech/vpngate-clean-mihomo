@@ -1,0 +1,3 @@
+# crontab -e  加入以下行(路径按实际部署目录, 默认 /opt/vpngate)
+# 每小时第 17 分兜底重建一次 s-ui 合并订阅(看门狗每轮也会自动同步, 这是双保险)
+17 * * * * /usr/bin/python3 /opt/vpngate/merge_subs.py >/dev/null 2>&1

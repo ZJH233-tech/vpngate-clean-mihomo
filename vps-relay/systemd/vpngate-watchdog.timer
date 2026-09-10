@@ -1,9 +1,9 @@
 [Unit]
-Description=VPNGate tunnel health watchdog timer
+Description=VPNGate tunnel health watchdog timer (75s, proven tuning)
 
 [Timer]
 OnBootSec=90
-OnUnitActiveSec=120
+OnUnitActiveSec=75
 AccuracySec=10s
 Unit=vpngate-watchdog.service
 

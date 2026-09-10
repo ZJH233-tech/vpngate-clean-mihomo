@@ -58,6 +58,16 @@ if ! healthy; then
 fi
 echo 0 > fail.count
 
+# ---------- 0) 策略路由自愈(防其他隧道 down 脚本误删日本槽规则) ----------
+if ! ip rule show | grep -q 'fwmark 0x162 lookup 100'; then
+  ip rule add fwmark 0x162 lookup 100 priority 101 2>/dev/null
+  echo "$(date '+%F %T') self-heal: fwmark 0x162 rule re-added" >> watchdog-switch.log
+fi
+if ! ip route show table 100 2>/dev/null | grep -q default; then
+  ip route replace default dev tun0 table 100 2>/dev/null
+  echo "$(date '+%F %T') self-heal: table 100 default re-added" >> watchdog-switch.log
+fi
+
 # ---------- 2) 出口纯净度 ----------
 if [ -z "$SCAM_API" ]; then
   echo "$(date '+%F %T') VPNGATE_SCAM_API not set, skip purity check" >> health.log

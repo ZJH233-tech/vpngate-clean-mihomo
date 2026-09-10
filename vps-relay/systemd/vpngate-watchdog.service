@@ -1,7 +1,8 @@
 [Unit]
-Description=VPNGate tunnel health check and failover
+Description=VPNGate tunnel health + exit purity watchdog (auto-switch)
 After=vpngate-tunnel.service
 
 [Service]
 Type=oneshot
 ExecStart=/opt/vpngate/watchdog.sh
+TimeoutStartSec=900

@@ -1,0 +1,14 @@
+[Unit]
+Description=VPNGate exit node (VLESS-Reality-8444, egress fwmark 354 -> table100 -> tun)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sing-box run -c /opt/vpngate/sb-exit.json
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
