@@ -60,7 +60,11 @@
 - 🛡️ <b>مقاوم‌سازی خروجی</b>: تمام متن‌های آزادِ طرف‌ثالث (نام ISP، نام میزبان، نام گروه دلخواه و...) از
   کاراکترهای کنترلی پاک‌سازی می‌شوند تا تزریق خط‌شکنندهٔ YAML ممکن نباشد.
 - 🖥️ <b>لایهٔ اختیاری VPS</b>: ورودی ثابت برای کلاینت + انتخاب خودکارِ خروجیِ پاک در پس‌زمینه + گذار خودکار با
-  نگهبان + مسدودسازی (blackhole) IPv6 برای جلوگیری از نشت.
+  نگهبان + مسدودسازی (blackhole) IPv6 برای جلوگیری از نشت. تا ۱۰ اسلات خروجیِ چندکشوری با <b>تخصیص چسبندهٔ
+  اسلات↔کشور</b> (بدون جابه‌جایی در هر رفرش) و پذیرش بر اساس <b>کشور خروجیِ واقعیِ اندازه‌گیری‌شده</b>؛ اشتراک به‌صورت
+  متمرکز ساخته می‌شود تا با رفرش، پرچم نودها جابه‌جا نشود.
+- 🧰 <b>ابزارهای عملیاتی</b>: راهنمای کامل ۱۰ مرحله‌ای دیپلوی، موتور آزمون سرعت سرتاسری (dial-test) و ربات کنترل
+  تلگرام (در پوشه‌های <code dir="ltr">docs/</code> و <code dir="ltr">extras/</code>).
 - ⚡ پروفایل کیفیت ۶ ساعت در حافظه کش می‌شود و فهرست نودها در لبه کش می‌گردد؛ اگر منبع سنجش کیفیت از کار بیفتد
   به‌صورت نرم تخریب می‌شود و <b>هرگز خروجی نودها را قطع نمی‌کند</b>. بدون نیاز به KV / D1 / متغیر محیطی.
 
@@ -89,9 +93,11 @@
                                                               ▼
                                               Mihomo / ClashMeta client auto speed-tests
  (Optional) VPS relay layer vps-relay/:
-   client ─fixed entry (VLESS/Reality, …)─▶ your VPS ─fwmark policy routing─▶ OpenVPN (tun0) ─▶ picked clean residential IP ─▶ Internet
+   client ─fixed entry (VLESS/Reality, …)─▶ your VPS ─fwmark policy routing─▶ OpenVPN (tun0/vpnm1-10) ─▶ clean residential IP ─▶ Internet
                                                     ▲
-            bestip refreshes the pool on a timer (clean-first, official cluster as fallback) + watchdog switches only after 2 consecutive failures
+     bestip/multi_refresh refresh pools on a timer (sticky country pinning, official cluster as fallback);
+     watchdog accepts by measured exit country / fraud score and rotates when needed;
+     sync_subscriptions builds the s-ui subscription centrally (pinned flag emoji, measured-country names, fixed order)
 ```
 
 </div>
@@ -207,16 +213,19 @@ https://your-domain/sub?cc=JP&n=10&maxrisk=30&sort=clean
 
 <div dir="rtl">
 برای سناریویی که می‌خواهید کانفیگ کلاینت هیچ‌وقت تغییر نکند و سرور در پس‌زمینه بی‌سروصدا خروجی‌های کم‌ریسک را
-انتخاب و جابه‌جا کند. راهنمای کامل در
-<a href="vps-relay/README.md"><code dir="ltr">vps-relay/README.md</code></a> (به زبان انگلیسی/چینی). این لایه:
+انتخاب و جابه‌جا کند. <b>راهنمای کامل ۱۰ مرحله‌ای: <a href="docs/deploy-vps.md"><code dir="ltr">docs/deploy-vps.md</code></a></b>
+و <a href="vps-relay/README.md"><code dir="ltr">vps-relay/README.md</code></a> (به زبان انگلیسی/چینی). این لایه:
 </div>
 
 <div dir="rtl">
 <ul dir="rtl">
 <li>به‌صورت دوره‌ای فهرست نودِ دارای امتیاز پاکی را از ورکر شما می‌گیرد و یک استخر کاندید <b>پاک‌دراولویت</b> می‌سازد و خوشهٔ رسمی را به‌عنوان پشتیبان در انتها نگه می‌دارد (هرگز کاملاً قطع نمی‌شود)؛</li>
 <li>یک تونل OpenVPN از نوع <code dir="ltr">tun</code> به‌همراه مسیریابی مبتنی بر سیاست با <code dir="ltr">fwmark</code> برپا می‌کند تا فقط ترافیک ورودیِ تعیین‌شده از تونل عبور کند و سایر سرویس‌ها دست‌نخورده بمانند؛</li>
-<li>نگهبان هر ۲ دقیقه سلامت را بررسی می‌کند و تنها پس از <b>۲ شکست پیاپی</b> به‌نرمی به نودِ صدرِ فهرست لحظه‌ای سوییچ می‌کند تا از قطعی‌های دوره‌ای ناشی از نوسان جدول جلوگیری شود؛</li>
-<li>مسدودسازی IPv6، rp_filter سست (loose) و تشخیص نشت از خط اصلی را اعمال می‌کند (اگر خروجی تونل برابر آی‌پی کارت شبکهٔ اصلی باشد، ناسالم تلقی می‌شود).</li>
+<li>نگهبان هر ۷۵/۱۲۰ ثانیه سلامت را بررسی می‌کند و تنها پس از <b>۲ شکست پیاپی</b> (با زمان خنک‌شدن ۶۰۰ ثانیه‌ای برای هر اسلات) به‌نرمی سوییچ می‌کند تا از قطعی‌های دوره‌ای ناشی از نوسان جدول جلوگیری شود؛</li>
+<li>تا ۱۰ تونل مستقلِ چندکشوری (هرکدام fwmark/جدول مسیریابی/دستگاه tun جدا) با <b>تخصیص چسبندهٔ اسلات↔کشور</b>؛ نگهبان اسلات را تنها زمانی سالم می‌داند که <b>کشور خروجیِ اندازه‌گیری‌شده</b> با کشور تخصیص‌یافته برابر باشد (در VPNGate رله‌های زنجیره‌ای‌ای هست که کشور ورود و خروجشان یکی نیست) و در غیر این صورت تعویض می‌کند؛</li>
+<li>پایداری اشتراک با <code dir="ltr">sync_subscriptions.py</code>: برای نودهای اصلی ایموجی پرچم ثابت گذاشته می‌شود (پایگاه‌های GeoIP روی محل سرور اختلاف دارند و باعث پرش پرچم می‌شوند)، اسلات‌ها بر اساس کشور خروجیِ واقعی نام‌گذاری می‌شوند و ترتیب اشتراک ادغام‌شده همیشه ثابت است؛</li>
+<li>مسدودسازی IPv6، rp_filter سست (loose) و تشخیص نشت از خط اصلی را اعمال می‌کند (اگر خروجی تونل برابر آی‌پی کارت شبکهٔ اصلی باشد، ناسالم تلقی می‌شود)؛</li>
+<li>اختیاری: <b>ربات کنترل تلگرام</b> (<code dir="ltr">extras/tgbot/</code>) و <b>موتور آزمون سرعت سرتاسری</b> (<code dir="ltr">extras/dialtest.py</code>).</li>
 </ul>
 </div>
 
@@ -232,14 +241,24 @@ https://your-domain/sub?cc=JP&n=10&maxrisk=30&sort=clean
 │   ├── worker.js                 # Single-file Worker (browser + API + subscription + quality engine)
 │   └── wrangler.toml.example
 ├── vps-relay/                    # Optional: VPS auto-picker + fixed-entry relay layer
-│   ├── bestip_refresh.py         # Clean picker (Worker first, official CSV fallback)
+│   ├── bestip_refresh.py/.sh     # JP-slot clean picker (Worker first, official CSV fallback)
 │   ├── build_running.sh          # Builds running.ovpn from candidates (self-bootstraps if missing)
 │   ├── ovpn-up.sh / ovpn-down.sh # Policy routing up/down (v4 + v6)
-│   ├── watchdog.sh               # Health check + failover
-│   ├── bestip_refresh.sh         # flock-mutex wrapper
+│   ├── watchdog.sh / pick_strict.sh   # JP-slot health check / strict pick-and-switch
+│   ├── multi_refresh.py          # Multi-country slot refresh with sticky slot→country pinning
+│   ├── multi_build.sh / multi_watchdog.sh  # Per-slot assembly / measured-exit watchdog
+│   ├── gen_sbexit.py / gen_keys.sh        # Exit-instance config / Reality keys & certs
+│   ├── sync_subscriptions.py     # Single source of truth for s-ui subs: pinned flags, measured names, fixed order
+│   ├── merge_subs.py / crontab.example    # cron fallback wrapper
 │   ├── vpngate.env.example       # Runtime config template (country / clean mode / Worker URL)
-│   ├── systemd/                  # service / timer units
-│   └── sysctl/                   # rp_filter example
+│   ├── nftables.conf             # Firewall template
+│   ├── systemd/  sysctl/         # service/timer units / rp_filter example
+├── examples/                     # Server-side config templates (placeholders)
+├── extras/
+│   ├── dialtest.py               # End-to-end real dial-test engine (params via env vars)
+│   └── tgbot/                    # Telegram control bot (hard owner allowlist)
+├── docs/deploy-vps.md            # Full 10-step VPS deployment guide + pitfalls
+├── assets/                       # README screenshots
 ├── LICENSE
 └── README.md / README_EN.md / README_FA.md
 ```

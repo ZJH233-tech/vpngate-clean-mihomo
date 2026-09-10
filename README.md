@@ -42,7 +42,9 @@
 - 🔁 **整份可直接订阅的配置**：`/sub` 直接输出含 `proxies + proxy-groups(url-test 自动测速) + rules` 的完整 Mihomo 配置，
   客户端填一个 URL 即可，无需手动拼。原项目只在浏览器里转换单个节点。
 - 🛡️ **输出加固**：对来自第三方的自由文本（ISP、主机名、自定义分组名等）统一做控制字符清洗，防止 YAML 断行注入。
-- 🖥️ **可选 VPS 转换层**：固定客户端入口 + 后台自动优选干净出口 + 看门狗故障切换 + IPv6 黑洞防泄漏。
+- 🖥️ **可选 VPS 转换层**：固定客户端入口 + 后台自动优选干净出口 + 看门狗故障切换 + IPv6 黑洞防泄漏；
+  支持 10 国多地区槽位（国家粘性绑定、按实测出口国验收），订阅统一生成、刷新不跳旗。
+- 🧰 **运维配套**：完整 10 步部署教程、端到端拨测引擎、Telegram 掌上控制台（均在 `docs/`、`extras/`）。
 - ⚡ 质量画像 6 小时内存缓存、节点列表边缘缓存；质量源故障自动降级，**绝不阻断出节点**。无需 KV / D1 / 环境变量。
 
 ### 继承自原项目
@@ -67,9 +69,10 @@
                                               Mihomo / ClashMeta 客户端自动测速选优
 
  （可选）VPS 转换层 vps-relay/：
-   客户端 ─固定入口(VLESS/Reality 等)─▶ 你的 VPS ─fwmark 策略路由─▶ OpenVPN(tun0) ─▶ 优选出的干净住宅 IP ─▶ 互联网
+   客户端 ─固定入口(VLESS/Reality 等)─▶ 你的 VPS ─fwmark 策略路由─▶ OpenVPN(tun0/vpnm1-10) ─▶ 干净住宅 IP ─▶ 互联网
                                                     ▲
-            bestip 定时刷新候选池(纯净优先,官方集群兜底) + watchdog 连续2次不健康才平滑切换
+     bestip/multi_refresh 定时刷新候选池(国家粘性绑定,官方集群兜底) + watchdog 按实测出口国/欺诈分巡检切换
+     sync_subscriptions 统一生成订阅: emoji 钉国旗 + 实测国命名 + 固定顺序(客户端刷新不跳旗)
 ```
 
 ### 纯净度评分规则（`assessQuality`）
@@ -143,12 +146,17 @@ https://你的域名/sub?cc=JP&n=10&maxrisk=30&sort=clean
 ## 🖥️（可选）VPS 转换层：固定入口 + 自动优选干净出口
 
 适合“想让客户端配置永远不变、由服务器后台自动挑选并切换低风险出口”的场景。完整步骤见
-[`vps-relay/README.md`](vps-relay/README.md)。它会：
+[**完整部署教程 docs/deploy-vps.md**](docs/deploy-vps.md) 与 [`vps-relay/README.md`](vps-relay/README.md)。它会：
 
 - 定时从你的 Worker 拉带纯净度的节点列表，**纯净优先**生成候选池，末尾保留官方集群兜底（永不彻底断连）；
 - 用 OpenVPN 建 tun 隧道 + `fwmark` 策略路由，只让指定入站流量走隧道，其余服务不受影响；
-- 看门狗每 2 分钟健康探测，**连续 2 次失败**才平滑切到实时榜首，避免榜单抖动造成周期性断流；
-- IPv6 黑洞、松散 rp_filter、主线路泄漏检测（隧道出口若等于主网卡 IP 即判不健康）。
+- 看门狗每 75 秒 / 2 分钟健康探测，**连续 2 次失败**才平滑切换（600s 冷却防抖），避免榜单抖动造成周期性断流；
+- **多地区槽位**：日本主槽之外再开 10 条独立隧道（独立 fwmark/路由表/tun 设备），槽位→国家**粘性绑定**，
+  不随上游榜单每轮洗牌；看门狗按**实测出口国**（VPNGate 存在“入口≠出口”的链式中继）+ 欺诈分验收，不合格自动轮换；
+- **订阅稳定不跳旗**：`sync_subscriptions.py` 统一生成 s-ui 订阅——主节点用 emoji 钉死国旗
+  （各 GeoIP 库对同一台机器归属判定不一，避免主节点国旗乱跳），槽位按实测出口国命名，合并订阅顺序固定；
+- IPv6 黑洞、松散 rp_filter、主线路泄漏检测（隧道出口若等于主网卡 IP 即判不健康）；
+- 可选 **TG 掌上控制台**（`extras/tgbot/`，手机上体检/重启/换节点）与**端到端拨测引擎**（`extras/dialtest.py`）。
 
 ---
 
@@ -159,16 +167,26 @@ https://你的域名/sub?cc=JP&n=10&maxrisk=30&sort=clean
 │   ├── worker.js                 # 单文件 Worker（节点浏览器 + API + 订阅 + 质量引擎）
 │   └── wrangler.toml.example
 ├── vps-relay/                    # 可选：VPS 自动优选 + 固定入口转换层
-│   ├── bestip_refresh.py         # 纯净优选器（Worker 优先，官方 CSV 兜底）
+│   ├── bestip_refresh.py/.sh     # 日本槽纯净优选器（Worker 优先，官方 CSV 兜底）
 │   ├── build_running.sh          # 由候选拼出 running.ovpn（缺失时自举）
 │   ├── ovpn-up.sh / ovpn-down.sh # 策略路由 up/down（v4+v6）
-│   ├── watchdog.sh               # 健康检查 + 故障切换
-│   ├── bestip_refresh.sh         # flock 互斥包装
+│   ├── watchdog.sh / pick_strict.sh  # 日本槽健康检查 + 严格挑选切换
+│   ├── multi_refresh.py          # 多地区槽位候选刷新（槽位→国家粘性绑定）
+│   ├── multi_build.sh / multi_watchdog.sh  # 多槽位组装 / 实测出口国巡检轮换
+│   ├── gen_sbexit.py / gen_keys.sh         # 出口实例配置 / Reality 密钥与证书
+│   ├── sync_subscriptions.py     # s-ui 订阅唯一权威：钉国旗 + 实测国命名 + 固定顺序
+│   ├── merge_subs.py / crontab.example     # cron 兜底封装
 │   ├── vpngate.env.example       # 运行配置模板（国家/纯净模式/Worker 地址）
-│   ├── systemd/                  # service / timer 单元
-│   └── sysctl/                   # rp_filter 示例
+│   ├── nftables.conf             # 防火墙模板
+│   ├── systemd/  sysctl/         # service/timer 单元 / rp_filter 示例
+├── examples/                     # 服务端配置模板（占位符）
+├── extras/
+│   ├── dialtest.py               # 端到端真实拨测引擎（参数走环境变量）
+│   └── tgbot/                    # Telegram 掌上控制台（白名单硬锁）
+├── docs/deploy-vps.md            # 10 步完整 VPS 部署教程 + 踩坑记录
+├── assets/                       # README 截图
 ├── LICENSE
-└── README.md
+└── README.md / README_EN.md / README_FA.md
 ```
 
 ---

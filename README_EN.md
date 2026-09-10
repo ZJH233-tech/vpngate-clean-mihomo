@@ -52,7 +52,11 @@ failover, while the client-side entry point never changes.
 - 🛡️ **Hardened output**: all free-text coming from third parties (ISP names, host names, custom group
   names, etc.) is stripped of control characters to prevent YAML line-break injection.
 - 🖥️ **Optional VPS relay layer**: a fixed client entry, background auto-picking of clean exits, watchdog
-  failover, and an IPv6 blackhole against leaks.
+  failover, and an IPv6 blackhole against leaks. Supports up to 10 per-country exit slots with **sticky
+  slot→country pinning** (no reshuffling on every upstream refresh) and acceptance by the **measured exit
+  country**; the subscription is generated centrally so refreshing it never shuffles flags.
+- 🧰 **Ops toolkit**: a full 10-step deployment guide, an end-to-end dial-test engine, and a Telegram
+  control bot (under `docs/` and `extras/`).
 - ⚡ Quality profiles are cached in memory for 6 hours and the node list at the edge; if the quality
   provider fails it degrades gracefully and **never blocks node output**. No KV / D1 / env vars required.
 
@@ -79,9 +83,11 @@ failover, while the client-side entry point never changes.
                                                               ▼
                                               Mihomo / ClashMeta client auto speed-tests
  (Optional) VPS relay layer vps-relay/:
-   client ─fixed entry (VLESS/Reality, …)─▶ your VPS ─fwmark policy routing─▶ OpenVPN (tun0) ─▶ picked clean residential IP ─▶ Internet
+   client ─fixed entry (VLESS/Reality, …)─▶ your VPS ─fwmark policy routing─▶ OpenVPN (tun0/vpnm1-10) ─▶ clean residential IP ─▶ Internet
                                                     ▲
-            bestip refreshes the pool on a timer (clean-first, official cluster as fallback) + watchdog switches only after 2 consecutive failures
+     bestip/multi_refresh refresh pools on a timer (sticky country pinning, official cluster as fallback);
+     watchdog accepts by measured exit country / fraud score and rotates when needed;
+     sync_subscriptions builds the s-ui subscription centrally (pinned flag emoji, measured-country names, fixed order)
 ```
 
 ### Cleanliness scoring rules (`assessQuality`)
@@ -160,16 +166,24 @@ https://your-domain/sub?cc=JP&n=10&maxrisk=30&sort=clean
 ## 🖥️ (Optional) VPS relay layer: fixed entry + automatic clean-exit picking
 
 For when you want the client config to never change while the server silently picks and switches
-low-risk exits in the background. See [`vps-relay/README.md`](vps-relay/README.md) for the full
-walkthrough. It will:
+low-risk exits in the background. See the **[full deployment guide: docs/deploy-vps.md](docs/deploy-vps.md)**
+and [`vps-relay/README.md`](vps-relay/README.md). It will:
 - periodically pull the quality-annotated node list from your Worker and build a **clean-first**
   candidate pool, keeping the official cluster at the tail as a fallback (never fully disconnect);
 - bring up an OpenVPN `tun` tunnel plus `fwmark` policy routing so only designated inbound traffic uses
   the tunnel and other services are untouched;
-- run a watchdog health probe every 2 minutes and switch smoothly to the current top node only after
-  **2 consecutive failures**, avoiding periodic drops caused by leaderboard churn;
+- run watchdog health probes (75 s / 120 s) and switch smoothly only after **2 consecutive failures**
+  (600 s per-slot cooldown), avoiding periodic drops caused by leaderboard churn;
+- run up to 10 additional per-country tunnels (separate fwmark / routing table / tun device each) with
+  **sticky slot→country pinning**; the watchdog accepts a slot only when the **measured exit country**
+  matches its pin (VPNGate has chained relays whose entry country ≠ exit country) and rotates otherwise;
+- keep subscriptions stable via `sync_subscriptions.py`: main nodes get a pinned flag emoji (GeoIP
+  databases disagree on server location, which otherwise makes flags drift), slots are named after
+  their measured exit country, and the merged subscription always uses one fixed order;
 - apply an IPv6 blackhole, loose rp_filter, and a main-line leak check (the tunnel is unhealthy if its
-  exit equals the primary NIC IP).
+  exit equals the primary NIC IP);
+- optionally add a **Telegram control bot** (`extras/tgbot/`) and an **end-to-end dial-test engine**
+  (`extras/dialtest.py`).
 
 ---
 
@@ -181,14 +195,24 @@ walkthrough. It will:
 │   ├── worker.js                 # Single-file Worker (browser + API + subscription + quality engine)
 │   └── wrangler.toml.example
 ├── vps-relay/                    # Optional: VPS auto-picker + fixed-entry relay layer
-│   ├── bestip_refresh.py         # Clean picker (Worker first, official CSV fallback)
+│   ├── bestip_refresh.py/.sh     # JP-slot clean picker (Worker first, official CSV fallback)
 │   ├── build_running.sh          # Builds running.ovpn from candidates (self-bootstraps if missing)
 │   ├── ovpn-up.sh / ovpn-down.sh # Policy routing up/down (v4 + v6)
-│   ├── watchdog.sh               # Health check + failover
-│   ├── bestip_refresh.sh         # flock-mutex wrapper
+│   ├── watchdog.sh / pick_strict.sh   # JP-slot health check / strict pick-and-switch
+│   ├── multi_refresh.py          # Multi-country slot refresh with sticky slot→country pinning
+│   ├── multi_build.sh / multi_watchdog.sh  # Per-slot assembly / measured-exit watchdog
+│   ├── gen_sbexit.py / gen_keys.sh        # Exit-instance config / Reality keys & certs
+│   ├── sync_subscriptions.py     # Single source of truth for s-ui subs: pinned flags, measured names, fixed order
+│   ├── merge_subs.py / crontab.example    # cron fallback wrapper
 │   ├── vpngate.env.example       # Runtime config template (country / clean mode / Worker URL)
-│   ├── systemd/                  # service / timer units
-│   └── sysctl/                   # rp_filter example
+│   ├── nftables.conf             # Firewall template
+│   ├── systemd/  sysctl/         # service/timer units / rp_filter example
+├── examples/                     # Server-side config templates (placeholders)
+├── extras/
+│   ├── dialtest.py               # End-to-end real dial-test engine (params via env vars)
+│   └── tgbot/                    # Telegram control bot (hard owner allowlist)
+├── docs/deploy-vps.md            # Full 10-step VPS deployment guide + pitfalls
+├── assets/                       # README screenshots
 ├── LICENSE
 └── README.md / README_EN.md / README_FA.md
 ```
