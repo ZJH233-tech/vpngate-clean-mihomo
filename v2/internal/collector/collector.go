@@ -16,7 +16,11 @@ import (
 	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/store"
 )
 
-const OfficialVPNGateURL = "https://www.vpngate.net/api/iphone/"
+const (
+	OfficialVPNGateURL    = "https://www.vpngate.net/api/iphone/"
+	WorkerFetchTimeout    = 25 * time.Second
+	BootstrapFetchTimeout = 60 * time.Second // 经志愿者隧道拉 1.3MB CSV 放宽至 60s
+)
 
 type FetchResult struct {
 	Servers []store.RawServer
@@ -80,12 +84,15 @@ func ParseWorkerJSON(data []byte) ([]store.RawServer, error) {
 	return payload.Servers, nil
 }
 
-func fetchURL(ctx context.Context, client *http.Client, rawURL string) ([]byte, error) {
+func fetchURL(ctx context.Context, client *http.Client, rawURL, bearerToken string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) vpngate-relayd/2.0")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -103,23 +110,23 @@ func normalizeWorkerURL(u string) string {
 		return ""
 	}
 	trimmed := strings.TrimRight(u, "/")
-	// 若只填了根域名，默认补 /api/servers
+	// 若只填了根域名，默认补 /csv（v2 私有 Worker 默认路径；填完整 /api/servers 同样原样保留）
 	if strings.Count(trimmed, "/") == 2 {
-		return trimmed + "/api/servers"
+		return trimmed + "/csv"
 	}
 	return u
 }
 
 // Fetch 按优先级拉取名单：
-//  1. 主通道：CF Worker 直供（JSON 或 CSV）
-//  2. 应急保底：仅当存在已验证存活的日本隧道（activeIface != ""）时，经活隧道自举直拉 vpngate.net
+//  1. 主通道：私有 CF Worker（带 Bearer 口令，兼容 /csv 原文和 /api/servers JSON）
+//  2. 应急保底：仅当存在已验证存活的日本隧道（activeIface != ""）时，经活隧道自举直拉 vpngate.net（60s 超时）
 //  3. 可选冷启动本地 CSV / 上次缓存保底
-func Fetch(ctx context.Context, workerURL, activeIface, bootstrapCSV string, st *store.Store) (FetchResult, error) {
+func Fetch(ctx context.Context, workerURL, workerToken, activeIface, bootstrapCSV string, st *store.Store) (FetchResult, error) {
 	var errs []string
 
 	if w := normalizeWorkerURL(workerURL); w != "" {
-		c := netutil.NewBoundHTTPClient("", 25*time.Second, false)
-		body, err := fetchURL(ctx, c, w)
+		c := netutil.NewBoundHTTPClient("", WorkerFetchTimeout, false)
+		body, err := fetchURL(ctx, c, w, workerToken)
 		if err == nil {
 			trim := strings.TrimSpace(string(body))
 			var list []store.RawServer
@@ -138,10 +145,9 @@ func Fetch(ctx context.Context, workerURL, activeIface, bootstrapCSV string, st 
 		errs = append(errs, fmt.Sprintf("worker: %v", err))
 	}
 
-	// 前置条件：必须先有活隧道，才能自举；双隧道全死时 activeIface 为空，不走本分支
 	if activeIface != "" {
-		c := netutil.NewBoundHTTPClient(activeIface, 25*time.Second, false)
-		body, err := fetchURL(ctx, c, OfficialVPNGateURL)
+		c := netutil.NewBoundHTTPClient(activeIface, BootstrapFetchTimeout, false)
+		body, err := fetchURL(ctx, c, OfficialVPNGateURL, "")
 		if err == nil {
 			list, perr := ParseVPNGateCSV(string(body))
 			if perr == nil && len(list) > 0 {

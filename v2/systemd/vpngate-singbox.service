@@ -1,0 +1,15 @@
+[Unit]
+Description=VPNGate Relay v2 sing-box data plane (VLESS-WS /ws/jp + /ws/direct)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'set -a && . /etc/vpngate-relay/secrets.env && set +a && /usr/local/bin/vpngate-relayd -config /etc/vpngate-relay/config.json -out /etc/vpngate-relay/sing-box.json render-singbox && /usr/local/bin/sing-box check -c /etc/vpngate-relay/sing-box.json'
+ExecStart=/usr/local/bin/sing-box run -c /etc/vpngate-relay/sing-box.json
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

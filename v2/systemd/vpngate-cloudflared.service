@@ -1,0 +1,13 @@
+[Unit]
+Description=VPNGate Relay v2 Cloudflare Argo Tunnel (formal token or TryCloudflare)
+After=network-online.target vpngate-relayd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vpngate-run-cloudflared.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

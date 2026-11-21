@@ -14,6 +14,7 @@ import (
 
 	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/collector"
 	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/config"
+	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/gateway"
 	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/netutil"
 	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/scorer"
 	"github.com/ZJH233-tech/vpngate-clean-mihomo/v2/internal/store"
@@ -115,7 +116,7 @@ func (m *Manager) RefreshPool(ctx context.Context) error {
 	m.mu.RUnlock()
 
 	mainEg := netutil.ProbeMainEgress(ctx, prevMain)
-	res, err := collector.Fetch(ctx, m.cfg.WorkerURL, activeIface, m.cfg.BootstrapCSV, m.store)
+	res, err := collector.Fetch(ctx, m.cfg.WorkerURL, m.cfg.WorkerToken, activeIface, m.cfg.BootstrapCSV, m.store)
 	if err != nil {
 		return err
 	}
@@ -421,6 +422,73 @@ func (m *Manager) verifyActivePurity(ctx context.Context) {
 	}
 }
 
+func (m *Manager) ActiveSummary() gateway.StatusSummary {
+	m.mu.RLock()
+	active := m.active
+	m.mu.RUnlock()
+	if active == nil {
+		return gateway.StatusSummary{}
+	}
+	snap := active.Snapshot()
+	out := gateway.StatusSummary{
+		ActiveDev: snap.Dev,
+		LatencyMs: snap.LastProbeMs,
+	}
+	if snap.Egress != nil {
+		out.EgressIP = snap.Egress.IP
+		out.EgressISP = snap.Egress.ISP
+	}
+	return out
+}
+
+const dashboardHTML = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VPNGate Relay v2 · Tailscale 监控台</title>
+<style>
+body{background:#0b0f17;color:#e5edf7;font-family:system-ui,-apple-system,sans-serif;max-width:920px;margin:24px auto;padding:0 16px}
+h1{font-size:20px;margin:0 0 12px;color:#2dd4bf}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+button{background:#1b2434;color:#e5edf7;border:1px solid #2b3952;padding:8px 14px;border-radius:8px;cursor:pointer}
+button:hover{border-color:#2dd4bf}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:16px}
+.card{background:#131a26;border:1px solid #263145;border-radius:10px;padding:14px}
+.card.active{border-color:#2dd4bf}
+.tag{font-size:12px;padding:2px 8px;border-radius:99px;background:#1b2434;color:#93c5fd}
+.ok{color:#4ade80}.bad{color:#f87171}
+pre{background:#131a26;border:1px solid #263145;border-radius:10px;padding:12px;overflow:auto;font-size:12px}
+</style></head><body>
+<h1>VPNGate Relay v2 · 雅加达承载 → 日本住宅出口</h1>
+<div class="bar">
+  <button onclick="load()">↻ 刷新</button>
+  <button onclick="act('/switch')">⚡ 手动热切 Active↔Standby</button>
+  <button onclick="act('/refresh')">📥 立即刷新候选池</button>
+  <span id="meta" style="align-self:center;color:#94a3b8;font-size:13px"></span>
+</div>
+<div class="grid" id="slots"></div>
+<pre id="switches">loading...</pre>
+<script>
+async function act(p){await fetch(p,{method:'POST'}); setTimeout(load,600);}
+function card(s,role){
+  const eg=s.egress||{};
+  const cls=s.state==='ready'?'ok':'bad';
+  return '<div class="card '+(role==='ACTIVE'?'active':'')+'">'+
+    '<div><b>'+s.dev+'</b> <span class="tag">'+role+'</span> <span class="'+cls+'">● '+s.state+'</span></div>'+
+    '<p>出口: <b>'+(eg.ip||'-')+'</b> ('+(eg.country||'-')+' / '+(eg.asn||'-')+')</p>'+
+    '<p>ISP: '+(eg.isp||'-')+' | proxy='+eg.proxy+' hosting='+eg.hosting+'</p>'+
+    '<p>探针: '+(s.last_probe_ms||0)+' ms | PID: '+(s.pid||'-')+'</p></div>';
+}
+async function load(){
+  const d=await (await fetch('/status')).json();
+  document.getElementById('meta').textContent='源: '+d.last_source+' | 候选池: '+d.pool_count+' | 主NAT: '+(d.main_egress.ip||'-')+' ('+(d.main_egress.asn||'-')+')';
+  document.getElementById('slots').innerHTML=
+    card(d.slot_a, d.active_dev===d.slot_a.dev?'ACTIVE':'STANDBY')+
+    card(d.slot_b, d.active_dev===d.slot_b.dev?'ACTIVE':'STANDBY');
+  document.getElementById('switches').textContent='最近切换记录:
+'+JSON.stringify((d.switches||[]).slice(-8).reverse(),null,2);
+}
+load(); setInterval(load, 5000);
+</script></body></html>`
+
 func (m *Manager) StatusSnapshot() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -452,6 +520,10 @@ func (m *Manager) StatusSnapshot() map[string]any {
 
 func (m *Manager) startControlAPI(ctx context.Context) *http.Server {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(dashboardHTML))
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
